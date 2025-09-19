@@ -1,0 +1,24 @@
+name: Build Kivy Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Build with Buildozer
+      uses: ArtemSBulgakov/buildozer-action@v1.5.0
+      with:
+        workdir: .
+        buildozer_version: stable
+
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: hekmat-game-apk
+        path: bin/*.apk
