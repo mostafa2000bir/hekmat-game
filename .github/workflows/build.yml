@@ -1,24 +1,37 @@
-name: Build Kivy Android APK
+name: Build Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
-    - name: Checkout repository
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Build with Buildozer
-      uses: ArtemSBulgakov/buildozer-action@v1.8.0
+    - name: Set up Python
+      uses: actions/setup-python@v4
       with:
-        workdir: .
-        buildozer_version: stable
+        python-version: '3.9'
+
+    - name: Install Buildozer dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
+
+    - name: Install Buildozer
+      run: pip install buildozer
+
+    - name: Build APK with Buildozer
+      run: |
+        buildozer init
+        buildozer -v android debug
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: hekmat-game-apk
+        name: hekmat-apk
         path: bin/*.apk
