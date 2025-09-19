@@ -1,0 +1,600 @@
+import socketio
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.uix.textinput import TextInput
+
+sio = socketio.Client()
+
+class HekmatClient(BoxLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = 'vertical'
+        self.padding = 50
+        self.spacing = 20
+        
+        self.status_label = Label(text="وضعیت: قطع ارتباط", size_hint=(1, 0.2))
+        self.add_widget(self.status_label)
+        
+        self.room_id_input = TextInput(hint_text="شناسه اتاق", size_hint=(1, 0.1))
+        self.add_widget(self.room_id_input)
+        
+        self.name_input = TextInput(hint_text="نام بازیکن", size_hint=(1, 0.1))
+        self.add_widget(self.name_input)
+        
+        self.connect_btn = Button(text="اتصال به سرور", size_hint=(1, 0.1))
+        self.connect_btn.bind(on_press=self.connect_to_server)
+        self.add_widget(self.connect_btn)
+        
+        self.create_btn = Button(text="ایجاد اتاق", size_hint=(1, 0.1))
+        self.create_btn.bind(on_press=self.create_room)
+        self.add_widget(self.create_btn)
+        
+        self.join_btn = Button(text="پیوستن به اتاق", size_hint=(1, 0.1))
+        self.join_btn.bind(on_press=self.join_room)
+        self.add_widget(self.join_btn)
+        
+        self.start_btn = Button(text="شروع بازی", size_hint=(1, 0.1))
+        self.start_btn.bind(on_press=self.start_game)
+        self.add_widget(self.start_btn)
+        
+        # تنظیم event handlers
+        sio.on('connect', self.on_connect)
+        sio.on('disconnect', self.on_disconnect)
+        sio.on('room_created', self.on_room_created)
+        sio.on('player_joined', self.on_player_joined)
+        sio.on('game_started', self.on_game_started)
+        sio.on('error', self.on_error)
+
+    def connect_to_server(self, instance):
+        try:
+            sio.connect('http://127.0.0.1:5000')
+            self.status_label.text = "در حال اتصال..."
+        except Exception as e:
+            self.status_label.text = f"خطا: {str(e)}"
+
+    def create_room(self, instance):
+        room_id = self.room_id_input.text
+        player_name = self.name_input.text
+        if room_id and player_name:
+            sio.emit('create_room', {
+                'room_id': room_id,
+                'player_name': player_name
+            })
+        else:
+            self.status_label.text = "لطفاً شناسه اتاق و نام را وارد کنید"
+
+    def join_room(self, instance):
+        room_id = self.room_id_input.text
+        player_name = self.name_input.text
+        if room_id and player_name:
+            sio.emit('join_room', {
+                'room_id': room_id,
+                'player_name': player_name
+            })
+        else:
+            self.status_label.text = "لطفاً شناسه اتاق و نام را وارد کنید"
+
+    def start_game(self, instance):
+        room_id = self.room_id_input.text
+        if room_id:
+            sio.emit('start_game', {'room_id': room_id})
+
+    # Event handlers
+    def on_connect(self):
+        self.status_label.text = "متصل به سرور!"
+
+    def on_disconnect(self):
+        self.status_label.text = "قطع ارتباط"
+
+    def on_room_created(self, data):
+        self.status_label.text = f"اتاق {data['room_id']} ایجاد شد"
+
+    def on_player_joined(self, data):
+        self.status_label.text = f"{data['player_name']} پیوست"
+
+    def on_game_started(self, data):
+        self.status_label.text = "بازی شروع شد!"
+
+    def on_error(self, data):
+        self.status_label.text = f"خطا: {data['message']}"
+
+class HekmatApp(App):
+    def build(self):
+        return Hekmat
+import random
+
+class Card:
+    def __init__(self, suit, value):
+        self.suit = suit
+        self.value = value
+
+    def __str__(self):
+        values = {1: 'Ace', 11: 'Jack', 12: 'Queen', 13: 'King'}
+        value_name = values.get(self.value, str(self.value))
+        return f"{value_name} of {self.suit}"
+
+class Deck:
+    def __init__(self):
+        self.cards = []
+        self.build()
+
+    def build(self):
+        suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
+        for suit in suits:
+            for value in range(1, 14):
+                self.cards.append(Card(suit, value))
+
+    def shuffle(self):
+        random.shuffle(self.cards)
+
+    def deal(self, num_players):
+        hands = [[] for _ in range(num_players)]
+        for i in range(13):
+            for j in range(num_players):
+                if self.cards:
+                    hands[j].append(self.cards.pop())
+        return hands
+
+def select_trump(players_hands):
+    dealer = random.randint(0, 3)
+    print(f"Player {dealer + 1} is the dealer and chooses trump.")
+    
+    print(f"Player {dealer + 1}'s first 5 cards:")
+    for card in players_hands[dealer][:5]:
+        print(" ", card)
+    
+    suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
+    trump_suit = random.choice(suits)
+    print(f"Trump suit is: {trump_suit}")
+    
+    return dealer, trump_suit
+
+def play_round(players_hands, trump_suit, starting_player):
+    trick = []
+    for i in range(4):
+        player_index = (starting_player + i) % 4
+        if players_hands[player_index]:
+            card = random.choice(players_hands[player_index])
+            players_hands[player_index].remove(card)
+            trick.append((player_index, card))
+            print(f"Player {player_index + 1} plays: {card}")
+    
+    winner_index = determine_winner(trick, trump_suit)
+    print(f"Player {winner_index + 1} wins the trick!\n")
+    return winner_index
+
+def determine_winner(trick, trump_suit):
+    winning_card = None
+    winner_index = None
+    for player_index, card in trick:
+        if winning_card is None:
+            winning_card = card
+            winner_index = player_index
+        else:
+            if card.suit == trump_suit and winning_card.suit != trump_suit:
+                winning_card = card
+                winner_index = player_index
+            elif card.suit == trump_suit and winning_card.suit == trump_suit:
+                if card.value > winning_card.value:
+                    winning_card = card
+                    winner_index = player_index
+            elif card.suit == trick[0][1].suit and winning_card.suit != trump_suit:
+                if card.value > winning_card.value:
+                    winning_card = card
+                    winner_index = player_index
+    return winner_index
+
+def calculate_score(tricks_won):
+    team1_tricks = tricks_won[0] + tricks_won[2]  # Players 1 and 3
+    team2_tricks = tricks_won[1] + tricks_won[3]  # Players 2 and 4
+    
+    print(f"Team 1 (Players 1 & 3) won {team1_tricks} tricks.")
+    print(f"Team 2 (Players 2 & 4) won {team2_tricks} tricks.")
+    
+    if team1_tricks > team2_tricks:
+        print("Team 1 wins the game!")
+    elif team2_tricks > team1_tricks:
+        print("Team 2 wins the game!")
+    else:
+        print("It's a tie!")
+
+# اجرای اصلی بازی
+deck = Deck()
+deck.shuffle()
+players_hands = deck.deal(4)
+
+dealer, trump_suit = select_trump(players_hands)
+
+print("\n--- Starting the game ---")
+current_player = dealer
+tricks_won = [0, 0, 0, 0]  # تعداد دست‌های برده شده توسط هر بازیکن
+
+for trick_number in range(13):
+    print(f"--- Trick {trick_number + 1} ---")
+    winner_index = play_round(players_hands, trump_suit, current_player)
+    tricks_won[winner_index] += 1
+    current_player = winner_index
+
+print("Game over!")
+calculate_score(tricks_won)
+
+import random
+
+class Card:
+    def __init__(self, suit, value):
+        self.suit = suit
+        self.value = value
+
+    def __str__(self):
+        values = {1: 'Ace', 11: 'Jack', 12: 'Queen', 13: 'King'}
+        value_name = values.get(self.value, str(self.value))
+        return f"{value_name} of {self.suit}"
+
+class Deck:
+    def __init__(self):
+        self.cards = []
+        self.build()
+
+    def build(self):
+        suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
+        for suit in suits:
+            for value in range(1, 14):
+                self.cards.append(Card(suit, value))
+
+    def shuffle(self):
+        random.shuffle(self.cards)
+
+    def deal(self, num_players):
+        hands = [[] for _ in range(num_players)]
+        for i in range(13):
+            for j in range(num_players):
+                if self.cards:
+                    hands[j].append(self.cards.pop())
+        return hands
+
+def select_trump(players_hands):
+    # انتخاب تصادفی حاکم (بازیکن 0 تا 3)
+    dealer = random.randint(0, 3)
+    print(f"Player {dealer + 1} is the dealer and chooses trump.")
+    
+    # نمایش ۵ کارت اول حاکم (برای انتخاب حکم)
+    print(f"Player {dealer + 1}'s first 5 cards:")
+    for card in players_hands[dealer][:5]:
+        print(" ", card)
+    
+    # انتخاب خال حکم (فعلاً تصادفی)
+    suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
+    trump_suit = random.choice(suits)
+    print(f"Trump suit is: {trump_suit}")
+    
+    return dealer, trump_suit
+
+# اصلی
+deck = Deck()
+deck.shuffle()
+players_hands = deck.deal(4)
+
+dealer, trump_suit = select_trump(players_hands)
+
+# نمایش دست همه بازیکنان
+for i, hand in enumerate(players_hands):
+    print(f"\nPlayer {i+1} has {len(hand)} cards:")
+    for card in hand:
+        print("  ", card)
+
+import socketio
+import time
+
+sio = socketio.Client()
+
+@sio.event
+def connect():
+    print("✅ متصل به سرور!")
+
+@sio.event
+def disconnect():
+    print("❌ قطع ارتباط")
+
+@sio.event
+def player_joined(data):
+    print(f"🎯 بازیکن پیوست: {data['player_name']}")
+    print(f"👥 بازیکنان: {data['players']}")
+
+@sio.event
+def error(data):
+    print(f"❌ خطا: {data['message']}")
+
+def main():
+    try:
+        print("🔗 در حال اتصال به سرور...")
+        sio.connect('http://127.0.0.1:5000')
+        
+        # پیوستن به اتاق موجود
+        room_id = "test_room"  # همان اتاق قبلی
+        player_name = "Player2"  # نام متفاوت
+        
+        print(f"\n🎯 پیوستن به اتاق: {room_id}")
+        sio.emit('join_room', {
+            'room_id': room_id,
+            'player_name': player_name
+        })
+        
+        # نگه داشتن اتصال
+        print("\n⏳ در حال اجرا... (Ctrl+C برای خروج)")
+        while True:
+            time.sleep(1)
+            
+    except KeyboardInterrupt:
+        print("\n👋 خروج از برنامه")
+    except Exception as e:
+        print(f"❌ خطا: {e}")
+    finally:
+        sio.disconnect()
+
+if __name__ == '__main__':
+    main()
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.label import Label
+from kivy.uix.button import Button
+from kivy.uix.image import Image
+from kivy.clock import Clock
+import random
+
+class HekmatGame(BoxLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = 'vertical'
+        self.padding = 50
+        self.spacing = 20
+        
+        # عنوان بازی
+        self.title_label = Label(
+            text="بازی حکم", 
+            font_size=40,
+            color=(1, 0.5, 0, 1)  # رنگ نارنجی
+        )
+        self.add_widget(self.title_label)
+        
+        # دکمه شروع بازی
+        self.start_button = Button(
+            text="شروع بازی جدید",
+            size_hint=(1, 0.2),
+            background_color=(0, 0.7, 0, 1)  # رنگ سبز
+        )
+        self.start_button.bind(on_press=self.start_game)
+        self.add_widget(self.start_button)
+        
+        # وضعیت بازی
+        self.status_label = Label(
+            text="آماده برای شروع بازی...",
+            font_size=20
+        )
+        self.add_widget(self.status_label)
+    
+    def start_game(self, instance):
+        self.status_label.text = "بازی در حال اجرا است!\nدر حال آماده‌سازی کارت‌ها..."
+        # بعداً اینجا لاژیک بازی رو اضافه می‌کنیم
+
+class HekmatApp(App):
+    def build(self):
+        return HekmatGame()
+
+if __name__ == '__main__':
+    HekmatApp().run()
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.uix.textinput import TextInput
+import socketio
+
+class HekmatOnlineClient(BoxLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = 'vertical'
+        self.sio = socketio.Client()
+        self.setup_connection_handlers()
+        
+        # UI برای اتصال
+        self.room_id_input = TextInput(hint_text='شناسه اتاق', size_hint=(1, 0.1))
+        self.add_widget(self.room_id_input)
+        
+        self.connect_button = Button(text='اتصال به اتاق', size_hint=(1, 0.1))
+        self.connect_button.bind(on_press=self.connect_to_room)
+        self.add_widget(self.connect_button)
+        
+        self.status_label = Label(text='آماده برای اتصال...', size_hint=(1, 0.2))
+        self.add_widget(self.status_label)
+
+    def setup_connection_handlers(self):
+        @self.sio.event
+        def connect():
+            self.status_label.text = 'متصل به سرور!'
+
+        @self.sio.event
+        def disconnect():
+            self.status_label.text = 'قطع ارتباط!'
+
+        @self.sio.event
+        def room_created(data):
+            self.status_label.text = f'اتاق ایجاد شد: {data["room_id"]}'
+
+        @self.sio.event
+        def player_joined(data):
+            self.status_label.text = f'بازیکن پیوست: {data["player_name"]}'
+
+    def connect_to_room(self, instance):
+        room_id = self.room_id_input.text
+        try:
+            self.sio.connect('http://localhost:5000')
+            self.sio.emit('join_room', {
+                'room_id': room_id,
+                'player_name': 'Player1'
+            })
+        except Exception as e:
+            self.status_label.text = f'خطا: {str(e)}'
+
+class HekmatOnlineApp(App):
+    def build(self):
+        return HekmatOnlineClient()
+
+if __name__ == '__main__':
+    HekmatOnlineApp().run()
+from flask import Flask
+from flask_socketio import SocketIO, emit, join_room, leave_room
+import random
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'hekmat_secret_key'
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# ذخیره‌سازی داده‌های بازی
+rooms = {}
+players = {}
+
+@socketio.on('connect')
+def handle_connect():
+    print('یک کلاینت متصل شد')
+    emit('connected', {'message': 'به سرور حکم خوش آمدید!'})
+
+@socketio.on('create_room')
+def handle_create_room(data):
+    room_id = data.get('room_id')
+    player_name = data.get('player_name')
+    
+    if not room_id or not player_name:
+        emit('error', {'message': 'شناسه اتاق یا نام بازیکن وجود ندارد'})
+        return
+    
+    rooms[room_id] = {
+        'players': [player_name],
+        'game_state': 'waiting',
+        'cards': [],
+        'scores': {player_name: 0}
+    }
+    
+    players[player_name] = room_id
+    join_room(room_id)
+    
+    emit('room_created', {
+        'room_id': room_id,
+        'players': rooms[room_id]['players']
+    }, room=room_id)
+    
+    print(f'اتاق {room_id} توسط {player_name} ایجاد شد')
+
+@socketio.on('join_room')
+def handle_join_room(data):
+    room_id = data.get('room_id')
+    player_name = data.get('player_name')
+    
+    if not room_id or not player_name:
+        emit('error', {'message': 'شناسه اتاق یا نام بازیکن وجود ندارد'})
+        return
+    
+    if room_id not in rooms:
+        emit('error', {'message': 'اتاق پیدا نشد'})
+        return
+    
+    if player_name in rooms[room_id]['players']:
+        emit('error', {'message': 'این نام قبلاً استفاده شده'})
+        return
+    
+    rooms[room_id]['players'].append(player_name)
+    rooms[room_id]['scores'][player_name] = 0
+    players[player_name] = room_id
+    join_room(room_id)
+    
+    emit('player_joined', {
+        'player_name': player_name,
+        'players': rooms[room_id]['players']
+    }, room=room_id)
+    
+    print(f'{player_name} به اتاق {room_id} پیوست')
+
+@socketio.on('start_game')
+def handle_start_game(data):
+    room_id = data.get('room_id')
+    
+    if room_id not in rooms:
+        emit('error', {'message': 'اتاق پیدا نشد'})
+        return
+    
+    rooms[room_id]['game_state'] = 'playing'
+    
+    # توزیع کارت‌ها (اینجا می‌تونیم منطق کامل رو اضافه کنیم)
+    emit('game_started', {
+        'message': 'بازی شروع شد!',
+        'players': rooms[room_id]['players']
+    }, room=room_id)
+    
+    print(f'بازی در اتاق {room_id} شروع شد')
+
+if __name__ == '__main__':
+    print('🚀 سرور بازی حکم در حال اجرا روی پورت 5000...')
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+from setuptools import setup; setup()
+import socketio
+import time
+
+sio = socketio.Client()
+
+@sio.event
+def connect():
+    print("✅ متصل به سرور!")
+
+@sio.event
+def disconnect():
+    print("❌ قطع ارتباط")
+
+@sio.event
+def room_created(data):
+    print(f"🎉 اتاق ایجاد شد: {data['room_id']}")
+    print(f"👥 بازیکنان: {data['players']}")
+
+@sio.event
+def player_joined(data):
+    print(f"🎯 بازیکن پیوست: {data['player_name']}")
+    print(f"👥 بازیکنان: {data['players']}")
+
+@sio.event
+def game_started(data):
+    print("🚀 بازی شروع شد!")
+    print(f"👥 بازیکنان: {data['players']}")
+
+@sio.event
+def error(data):
+    print(f"❌ خطا: {data['message']}")
+
+def main():
+    try:
+        print("🔗 در حال اتصال به سرور...")
+        sio.connect('http://127.0.0.1:5000')
+        
+        # تست ایجاد اتاق
+        room_id = "test_room"
+        player_name = "Player1"
+        
+        print(f"\n🎯 ایجاد اتاق: {room_id}")
+        sio.emit('create_room', {
+            'room_id': room_id,
+            'player_name': player_name
+        })
+        
+        # نگه داشتن اتصال
+        print("\n⏳ در حال اجرا... (Ctrl+C برای خروج)")
+        while True:
+            time.sleep(1)
+            
+    except KeyboardInterrupt:
+        print("\n👋 خروج از برنامه")
+    except Exception as e:
+        print(f"❌ خطا: {e}")
+    finally:
+        sio.disconnect()
+
+if __name__ == '__main__':
+    main()
